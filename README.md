@@ -1,6 +1,6 @@
 # rediver-semgrep
 
-SAST scanner for [Rediver](https://rediver.ai) powered by [semgrep](https://semgrep.dev/).
+[Rediver](https://rediver.ai) integration for [Semgrep](https://semgrep.dev/) SAST scanner.
 
 Scans git repositories for security vulnerabilities, code quality issues, and best practice violations, then reports findings to the Rediver platform.
 
