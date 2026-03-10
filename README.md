@@ -23,6 +23,13 @@ go install github.com/califio/rediver-semgrep@latest
 REDIVER_TOKEN=your-cluster-token rediver-semgrep
 ```
 
+## Getting REDIVER_TOKEN
+
+1. Log in to [Rediver](https://app.rediver.ai)
+2. Go to **Agent Clusters** page: `https://app.rediver.ai/tenant/{your-tenant}/agents`
+3. Create a new agent cluster (or select an existing one)
+4. Copy the generated token — this is your `REDIVER_TOKEN`
+
 ## Configuration
 
 All options can be set via CLI flags or environment variables.
