@@ -186,28 +186,43 @@ func scan(ctx context.Context, log *slog.Logger, repoPath, config, baselineCommi
 
 func toSASTFinding(r semgrepResult) rediver.SASTFinding {
 	return rediver.SASTFinding{
-		Name:        ruleName(r.CheckID),
+		Name:        findingName(r.CheckID, r.Path),
 		Description: r.Extra.Message,
 		Severity:    mapSeverity(r.Extra.Severity, r.Extra.Metadata.Impact),
 		File:        r.Path,
 		StartLine:   r.Start.Line,
 		EndLine:     r.End.Line,
 		Snippet:     r.Extra.Lines,
-		Category:    r.Extra.Metadata.Category,
+		Category:    findingCategory(r.Extra.Metadata),
 		RuleID:      r.CheckID,
 		CWEs:        r.Extra.Metadata.CWE,
 		References:  r.Extra.Metadata.References,
 	}
 }
 
-// ruleName extracts a readable name from semgrep check_id.
-// e.g., "python.lang.security.audit.dangerous-exec" → "dangerous-exec"
-func ruleName(checkID string) string {
-	parts := strings.Split(checkID, ".")
-	if len(parts) > 0 {
-		return parts[len(parts)-1]
+// findingCategory returns the best category for a finding:
+// vulnerability_class (first element) → category → "Unknown".
+func findingCategory(m semgrepMetadata) string {
+	if len(m.VulnerabilityClass) > 0 && m.VulnerabilityClass[0] != "" {
+		return m.VulnerabilityClass[0]
 	}
-	return checkID
+	if m.Category != "" {
+		return m.Category
+	}
+	return "Unknown"
+}
+
+// findingName builds a human-readable name from check_id and file path.
+// e.g., ("yaml.docker-compose.security.writable-filesystem-service", "docker-compose.yml")
+// → "Writable filesystem service at docker-compose.yml"
+func findingName(checkID, path string) string {
+	parts := strings.Split(checkID, ".")
+	slug := parts[len(parts)-1]
+	name := strings.ReplaceAll(slug, "-", " ")
+	if len(name) > 0 {
+		name = strings.ToUpper(name[:1]) + name[1:]
+	}
+	return name + " at " + path
 }
 
 // mapSeverity converts semgrep severity + impact to rediver severity.

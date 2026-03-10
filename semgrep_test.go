@@ -142,8 +142,8 @@ func TestToSASTFinding(t *testing.T) {
 
 	f := toSASTFinding(r)
 
-	if f.Name != "dangerous-exec" {
-		t.Errorf("Name = %q, want %q", f.Name, "dangerous-exec")
+	if f.Name != "Dangerous exec at app/utils.py" {
+		t.Errorf("Name = %q, want %q", f.Name, "Dangerous exec at app/utils.py")
 	}
 	if f.Description != "Detected dangerous exec usage" {
 		t.Errorf("Description = %q, want %q", f.Description, "Detected dangerous exec usage")
@@ -177,6 +177,28 @@ func TestToSASTFinding(t *testing.T) {
 	}
 }
 
+func TestFindingCategory(t *testing.T) {
+	tests := []struct {
+		name string
+		meta semgrepMetadata
+		want string
+	}{
+		{"vulnerability_class first", semgrepMetadata{VulnerabilityClass: jsonList{"Improper Authorization"}, Category: "security"}, "Improper Authorization"},
+		{"fallback to category", semgrepMetadata{Category: "security"}, "security"},
+		{"empty vulnerability_class fallback", semgrepMetadata{VulnerabilityClass: jsonList{}, Category: "security"}, "security"},
+		{"both empty", semgrepMetadata{}, "Unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := findingCategory(tt.meta)
+			if got != tt.want {
+				t.Errorf("findingCategory() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestMapSeverity(t *testing.T) {
 	tests := []struct {
 		severity string
@@ -201,20 +223,21 @@ func TestMapSeverity(t *testing.T) {
 	}
 }
 
-func TestRuleName(t *testing.T) {
+func TestFindingName(t *testing.T) {
 	tests := []struct {
-		input string
-		want  string
+		checkID string
+		path    string
+		want    string
 	}{
-		{"python.lang.security.audit.dangerous-exec", "dangerous-exec"},
-		{"simple-rule", "simple-rule"},
-		{"a.b", "b"},
+		{"yaml.docker-compose.security.writable-filesystem-service.writable-filesystem-service", "docker-compose.yml", "Writable filesystem service at docker-compose.yml"},
+		{"python.lang.security.audit.dangerous-exec", "app/utils.py", "Dangerous exec at app/utils.py"},
+		{"simple-rule", "main.go", "Simple rule at main.go"},
 	}
 
 	for _, tt := range tests {
-		got := ruleName(tt.input)
+		got := findingName(tt.checkID, tt.path)
 		if got != tt.want {
-			t.Errorf("ruleName(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("findingName(%q, %q) = %q, want %q", tt.checkID, tt.path, got, tt.want)
 		}
 	}
 }
