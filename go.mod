@@ -4,7 +4,7 @@ go 1.25.4
 
 require (
 	github.com/alecthomas/kong v1.12.1
-	github.com/califio/rediver-sdk-go v1.2.2
+	github.com/califio/rediver-sdk-go v1.2.5
 	github.com/joho/godotenv v1.5.1
 )
 

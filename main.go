@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/alecthomas/kong"
-	"github.com/califio/rediver-sdk-go"
+	rediver "github.com/califio/rediver-sdk-go"
 	"github.com/joho/godotenv"
 )
 
@@ -19,6 +19,7 @@ type CLI struct {
 	MaxConcurrentJob int    `help:"Max concurrent job" env:"MAX_CONCURRENT_JOB" default:"1"`
 	PollingInterval  int    `help:"Polling interval in seconds" env:"POLLING_INTERVAL" default:"10"`
 	Mode             string `help:"Run mode: worker (long-running poll loop), ci (auto-detect CI env, scan, exit), task (single job, exit)" env:"MODE" enum:"worker,ci,task" default:"ci"`
+	JobID            string `help:"Direct job ID — skip poll, execute this job directly" env:"REDIVER_JOB_ID"`
 	SemgrepConfig    string `help:"Semgrep config (ruleset or path). e.g. auto, p/default, p/owasp-top-ten, path/to/rules.yaml" env:"SEMGREP_CONFIG" default:"auto"`
 	RepoDir          string `help:"Override repository directory for scanning" env:"REPO_DIR"`
 	BaselineCommit   string `help:"Baseline commit SHA for PR/MR diff scanning" env:"BASELINE_COMMIT"`
@@ -30,24 +31,15 @@ func (cli *CLI) Run() error {
 		rediver.WithMaxConcurrency(cli.MaxConcurrentJob),
 		rediver.WithPollInterval(time.Duration(cli.PollingInterval) * time.Second),
 	}
-
-	switch cli.Mode {
-	case "worker":
-		opts = append(opts, rediver.WithWorkerMode())
-	case "ci":
-		opts = append(opts, rediver.WithCIMode())
-	case "task":
-		opts = append(opts, rediver.WithTaskMode())
-	}
 	if cli.RepoDir != "" {
 		opts = append(opts, rediver.WithRepoDir(cli.RepoDir))
 	}
 
-	agent, err := rediver.NewAgent(cli.Url, cli.Token, opts...)
+	runner, err := rediver.NewRunner(cli.Url, cli.Token, opts...)
 	if err != nil {
 		return err
 	}
-	if err := agent.Register(NewSemgrepScanner(SemgrepDefaults{
+	if err := runner.Add(NewSemgrepScanner(SemgrepDefaults{
 		Config:         cli.SemgrepConfig,
 		BaselineCommit: cli.BaselineCommit,
 	})); err != nil {
@@ -57,7 +49,17 @@ func (cli *CLI) Run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(),
 		syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	return agent.Run(ctx)
+
+	switch cli.Mode {
+	case "worker":
+		return runner.Run(ctx)
+	case "ci":
+		return runner.RunCI(ctx)
+	case "task":
+		return runner.RunOnce(ctx, cli.JobID)
+	default:
+		return runner.RunCI(ctx)
+	}
 }
 
 func main() {

@@ -133,9 +133,42 @@ func (jl *jsonList) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// extractSemgrepErrors parses JSON stdout from a failed semgrep run
+// and returns concatenated error messages. Semgrep with --quiet writes
+// errors to the JSON "errors" array, not stderr.
+func extractSemgrepErrors(out []byte) string {
+	var parsed struct {
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if json.Unmarshal(out, &parsed) != nil || len(parsed.Errors) == 0 {
+		return ""
+	}
+	var msgs []string
+	for _, e := range parsed.Errors {
+		if e.Message != "" {
+			msgs = append(msgs, e.Message)
+		}
+	}
+	return strings.Join(msgs, "; ")
+}
+
 // scan runs semgrep CLI on the given directory and returns SAST findings.
 // When baselineCommit is set, only new findings since that commit are reported.
 func scan(ctx context.Context, log *slog.Logger, repoPath, config, baselineCommit string) ([]rediver.SASTFinding, error) {
+	// Safety net: verify baseline commit is usable for diff.
+	// SDK already deepens the clone, but check in case it's still unreachable.
+	if baselineCommit != "" {
+		check := exec.CommandContext(ctx, "git", "merge-base", baselineCommit, "HEAD")
+		check.Dir = repoPath
+		if err := check.Run(); err != nil {
+			log.Warn("baseline commit not reachable, scanning without baseline",
+				"baseline", baselineCommit)
+			baselineCommit = ""
+		}
+	}
+
 	log.Info("running semgrep", "path", repoPath, "config", config, "baseline", baselineCommit)
 
 	args := []string{
@@ -151,6 +184,7 @@ func scan(ctx context.Context, log *slog.Logger, repoPath, config, baselineCommi
 	args = append(args, repoPath)
 
 	cmd := exec.CommandContext(ctx, "semgrep", args...)
+	cmd.Dir = repoPath // semgrep runs git commands from CWD, not from the path argument
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -159,7 +193,13 @@ func scan(ctx context.Context, log *slog.Logger, repoPath, config, baselineCommi
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			if exitErr.ExitCode() > 1 {
-				return nil, fmt.Errorf("semgrep exited with code %d: %s", exitErr.ExitCode(), stderr.String())
+				// Semgrep with --quiet outputs errors in JSON stdout, not stderr.
+				// Try to extract error message from JSON output first.
+				errMsg := extractSemgrepErrors(out)
+				if errMsg == "" {
+					errMsg = stderr.String()
+				}
+				return nil, fmt.Errorf("semgrep exited with code %d: %s", exitErr.ExitCode(), errMsg)
 			}
 		} else {
 			return nil, fmt.Errorf("run semgrep: %w", err)
