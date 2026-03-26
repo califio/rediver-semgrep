@@ -31,7 +31,6 @@ func (m *mockJob) RepoDir() string                         { return m.repoDir }
 func (m *mockJob) ChangedFiles(_ context.Context) (*utils.ChangedFiles, error) {
 	return nil, nil
 }
-func (m *mockJob) ClusterInfo() rediver.ClusterInfo  { return rediver.ClusterInfo{} }
 func (m *mockJob) Integration() *rediver.Integration { return nil }
 func (m *mockJob) Scanner() string                   { return "semgrep" }
 func (m *mockJob) TimeoutMinutes() int               { return 0 }
