@@ -151,13 +151,15 @@ func scan(ctx context.Context, log *slog.Logger, repoPath, config, baselineCommi
 	args = append(args, repoPath)
 
 	cmd := exec.CommandContext(ctx, "semgrep", args...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 
 	// Semgrep exits with code 1 when findings are present — not an error.
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			if exitErr.ExitCode() > 1 {
-				return nil, fmt.Errorf("semgrep exited with code %d: %s", exitErr.ExitCode(), string(exitErr.Stderr))
+				return nil, fmt.Errorf("semgrep exited with code %d: %s", exitErr.ExitCode(), stderr.String())
 			}
 		} else {
 			return nil, fmt.Errorf("run semgrep: %w", err)
