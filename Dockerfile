@@ -6,7 +6,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     build-essential
 
 WORKDIR /go/src/app
-ENV CGO_ENABLED=0 GOOS=linux
+ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 COPY . .
 ARG VERSION=dev
 RUN go build -ldflags "-X main.Version=${VERSION}" -o /go/bin/rediver-semgrep
