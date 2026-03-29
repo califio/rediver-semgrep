@@ -181,7 +181,7 @@ func scan(ctx context.Context, log *slog.Logger, repoPath, config, baselineCommi
 	if baselineCommit != "" {
 		args = append(args, "--baseline-commit", baselineCommit)
 	}
-	args = append(args, repoPath)
+	args = append(args, ".")
 
 	cmd := exec.CommandContext(ctx, "semgrep", args...)
 	cmd.Dir = repoPath // semgrep runs git commands from CWD, not from the path argument

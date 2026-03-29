@@ -7,6 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -115,6 +117,91 @@ func TestSemgrepHandler_ScanVulnado(t *testing.T) {
 			fmt.Printf("[%d] %s | %s | %s:%d | %s | CWE: %v\n",
 				i+1, f.Severity, f.Name, f.File, f.StartLine, f.Category, f.CWEs)
 		}
+	}
+}
+
+// TestScan_FindingPathsAreRelative verifies that scan() returns relative file
+// paths, not absolute paths containing the temp directory prefix.
+// This is the core regression test for the path fix: semgrep target must be "."
+// (relative) so that output paths don't include /tmp/repo_XXXX/ prefixes.
+// Requires semgrep installed. Run: go test -run TestScan_FindingPathsAreRelative -v -timeout 2m
+func TestScan_FindingPathsAreRelative(t *testing.T) {
+	if _, err := exec.LookPath("semgrep"); err != nil {
+		t.Skip("semgrep not installed, skipping")
+	}
+
+	// Create a temp repo with a known vulnerable Python file
+	tmpDir, err := os.MkdirTemp("", "repo_test_paths_")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Init git repo (semgrep may need it for baseline features)
+	gitInit := exec.Command("git", "init")
+	gitInit.Dir = tmpDir
+	if out, err := gitInit.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+
+	// Write a Python file with an obvious vulnerability
+	vulnFile := filepath.Join(tmpDir, "vuln.py")
+	if err := os.WriteFile(vulnFile, []byte("import os\nos.system(input())\n"), 0644); err != nil {
+		t.Fatalf("write vuln file: %v", err)
+	}
+
+	// Write a custom semgrep rule that guarantees a match
+	ruleFile := filepath.Join(tmpDir, ".semgrep.yml")
+	rule := `rules:
+  - id: test-dangerous-system-call
+    pattern: os.system(...)
+    message: "Dangerous system call detected"
+    severity: WARNING
+    languages: [python]
+`
+	if err := os.WriteFile(ruleFile, []byte(rule), 0644); err != nil {
+		t.Fatalf("write rule file: %v", err)
+	}
+
+	// Commit so semgrep has a clean working tree
+	gitAdd := exec.Command("git", "add", ".")
+	gitAdd.Dir = tmpDir
+	if out, err := gitAdd.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	gitCommit := exec.Command("git", "commit", "-m", "init", "--no-gpg-sign")
+	gitCommit.Dir = tmpDir
+	gitCommit.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@test.com",
+		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@test.com",
+	)
+	if out, err := gitCommit.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+
+	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	// Use the local rule file as config to guarantee findings
+	findings, err := scan(context.Background(), log, tmpDir, ruleFile, "")
+	if err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+
+	if len(findings) == 0 {
+		t.Skip("semgrep found no findings for test file (rule set may vary), skipping path assertion")
+	}
+
+	for i, f := range findings {
+		// Path must NOT be absolute
+		if filepath.IsAbs(f.File) {
+			t.Errorf("finding[%d].File is absolute: %q, want relative path", i, f.File)
+		}
+		// Path must NOT contain the temp directory prefix
+		if strings.Contains(f.File, tmpDir) {
+			t.Errorf("finding[%d].File contains temp dir prefix: %q", i, f.File)
+		}
+		// Path should be just the filename (e.g., "vuln.py")
+		t.Logf("finding[%d].File = %q (OK: relative)", i, f.File)
 	}
 }
 
